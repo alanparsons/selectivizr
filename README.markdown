@@ -3,6 +3,10 @@ Selectivizr
 
 **CSS3 selectors for IE 6-8**
 
+A custom build that gets round the IE8 XDomainRequest issue of it needing xhr.onload to get the file contents and having to wait for this to finish each time we call a file. 
+
+// Still need to allow for more than one media query but it works for one :)
+
 
 _selectivizr_ is a JavaScript utility that emulates CSS3 pseudo-classes
 and attribute selectors in Internet Explorer 6-8. Simply include the
