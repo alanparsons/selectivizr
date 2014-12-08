@@ -36,14 +36,19 @@ References:
 
 	// =========================== Init Objects ============================
 
+	// custom added global vars
+	var baseStylesheet = '';
+	var styleSheets = '';
+	var importCount = 0;
+	var importCurrent = 0;
+	var base = this;
+
 	var doc = document;
 	var root = doc.documentElement;
-	var xhr = getXHRObject();
 	var ieVersion = ieUserAgent[1];
 
-	// If were not in standards mode, IE is too old / new or we can't create
-	// an XMLHttpRequest object then we should get out now.
-	if (doc.compatMode != 'CSS1Compat' || ieVersion<6 || ieVersion>8 || !xhr) {
+	// If were not in standards mode, IE is too old / new then we should get out now.
+	if (doc.compatMode != 'CSS1Compat' || ieVersion<6 || ieVersion>8) {
 		return;
 	}
 	
@@ -379,22 +384,39 @@ References:
 	};
 
 	// --[ getXHRObject() ]-------------------------------------------------
-	function getXHRObject() {
-		if (win.XMLHttpRequest) {
-			return new XMLHttpRequest;
-		}
-		try	{ 
-			return new ActiveXObject('Microsoft.XMLHTTP');
-		} catch(e) { 
+	// NOT being used as we are only using XDomainRequest for IE8 
+	// REVISIT if needed
+	/*function getXHRObject(url) {
+		var xhr;
+		try {
+			if (-1 === url.indexOf(win.location.host) && win.XDomainRequest) {
+				xhr = new win.XDomainRequest();
+			} else if (win.XMLHttpRequest) {
+				xhr = new win.XMLHttpRequest();
+			} else {
+				xhr = new win.ActiveXObject('Microsoft.XMLHTTP');
+			}
+			xhr.open('GET', url, false);
+			return xhr;
+		} catch (e) {
 			return null;
 		}
-	};
+	};*/
 
 	// --[ loadStyleSheet() ]-----------------------------------------------
-	function loadStyleSheet( url ) {
-		xhr.open("GET", url, false);
-		xhr.send();
-		return (xhr.status==200) ? xhr.responseText : EMPTY_STRING;	
+	function loadStyleSheet(url) {
+		var xhr;
+		try {
+			xhr = new XDomainRequest();
+			xhr.onload = function() {
+				importCurrent++;
+			    parseStyleSheet2(xhr.responseText, url);
+			}
+			xhr.open("GET", url, false);
+			xhr.send();
+		} catch (e) {
+			return EMPTY_STRING;
+		}
 	};
 	
 	// --[ resolveUrl() ]---------------------------------------------------
@@ -421,7 +443,7 @@ References:
 
 		// absolute path
 		if (/^https?:\/\//i.test(url)) {
-			return !ignoreSameOriginPolicy && getProtocolAndHost(contextUrl) != getProtocolAndHost(url) ? null : url ;
+			return url;
 		}
 
 		// root-relative path
@@ -442,7 +464,9 @@ References:
 	// Downloads the stylesheet specified by the URL, removes it's comments
 	// and recursivly replaces @import rules with their contents, ultimately
 	// returning the full cssText.
-	function parseStyleSheet( url ) {
+
+	// OLD 
+	/*function parseStyleSheet( url ) {
 		if (url) {
 			return loadStyleSheet(url).replace(RE_COMMENT, EMPTY_STRING).
 			replace(RE_IMPORT, function( match, quoteChar, importUrl, quoteChar2, importUrl2, media ) {
@@ -455,17 +479,85 @@ References:
 			});
 		}
 		return EMPTY_STRING;
+	};*/
+
+	function parseStyleSheet2( css, url ) {
+		if (url) {
+			var importCSS, cssimport;
+
+			// Get the starting stylesheet to replace imports later
+			if(importCurrent == 1) {
+
+				baseStylesheet = css.replace(RE_COMMENT, EMPTY_STRING).
+				replace(RE_ASSET_URL, function( match, isBehavior, quoteChar, assetUrl ) { 
+					quoteChar = quoteChar || EMPTY_STRING;
+					return isBehavior ? match : " url(" + quoteChar + resolveUrl(assetUrl, url, true) + quoteChar + ") "; 
+				});
+
+			} else {
+
+				importCSS = css.replace(RE_COMMENT, EMPTY_STRING).
+				replace(RE_IMPORT, EMPTY_STRING).
+				replace(RE_ASSET_URL, function( match, isBehavior, quoteChar, assetUrl ) { 
+					quoteChar = quoteChar || EMPTY_STRING;
+					return isBehavior ? match : " url(" + quoteChar + resolveUrl(assetUrl, url, true) + quoteChar + ") "; 
+				});
+
+				// replace import with new CSS - this way the cascading is correct
+				// NEED TO - replace current import as this will replace all if there is more than one
+				base.css = baseStylesheet.replace(/@import\s*(?:(?:(?:url\(\s*(['"]?)(.*)\1)\s*\))|(?:(['"])(.*)\3))\s*([^;]*);/g, importCSS);
+
+			}			
+
+			// find imports places in array
+			cssimport = css.match(RE_IMPORT);
+
+			// if imports run through and grab css
+			// NEED TO - loop through each import at the moment it just does the first one
+			if(cssimport) {
+				importCount = cssimport.length;
+				cssimport[0].replace(RE_IMPORT, function(match, quoteChar, importUrl, quoteChar2, importUrl2, media){
+					loadStyleSheet(resolveUrl(importUrl || importUrl2, url));
+				});
+			}
+
+			// if imports finished then apply CSS
+			if(importCurrent > importCount) {
+				console.log(base.css);
+				stylesheet.cssText = stylesheet["rawCssText"] = patchStyleSheet(base.css);
+
+				for (var engine in selectorEngines) {
+					var members, member, context = win;
+					if (win[engine]) {
+						members = selectorEngines[engine].replace("*", engine).split(".");
+						while ((member = members.shift()) && (context = context[member])) {}
+						if (typeof context == "function") {
+							selectorMethod = context;
+							init();
+							return;
+						}
+					}
+				}
+
+				importCurrent = 0;
+
+			}
+
+		}
+
+		return EMPTY_STRING;
 	};
 
 	// --[ getStyleSheets() ]-----------------------------------------------
 	function getStyleSheets() {
-		var url, stylesheet;
+		var url;
 		for (var c = 0; c < doc.styleSheets.length; c++) {
+			base.css = '';
 			stylesheet = doc.styleSheets[c];
 			if (stylesheet.href != EMPTY_STRING) {
 				url = resolveUrl(stylesheet.href);
 				if (url) {
-					stylesheet.cssText = stylesheet["rawCssText"] = patchStyleSheet( parseStyleSheet( url ) );
+					loadStyleSheet(url);
 				}
 			}
 		}
@@ -504,18 +596,7 @@ References:
 	// Bind selectivizr to the ContentLoaded event. 
 	ContentLoaded(win, function() {
 		// Determine the "best fit" selector engine
-		for (var engine in selectorEngines) {
-			var members, member, context = win;
-			if (win[engine]) {
-				members = selectorEngines[engine].replace("*", engine).split(".");
-				while ((member = members.shift()) && (context = context[member])) {}
-				if (typeof context == "function") {
-					selectorMethod = context;
-					init();
-					return;
-				}
-			}
-		}
+		
 	});
 	
 
