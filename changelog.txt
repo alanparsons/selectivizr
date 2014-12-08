@@ -1,6 +1,12 @@
 selectivizr - change log
 ========================
 
+Custom Build
+-------------
+
+ * Added fix for IE8 XDomainRequest as it needs xhr.onload to gather the file contents 
+ * Re-worked a fair bit of the js becuase of above issue and have to wait for xhr to finish 
+
 Current Build
 -------------
 
